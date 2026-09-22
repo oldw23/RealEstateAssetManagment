@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Annotated, Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
@@ -56,6 +56,7 @@ import data_tools as dt
 VALID_INTENTS = [
     "pnl_summary",
     "property_comparison",
+    "price_comparison",
     "period_comparison",
     "top_tenants",
     "anomaly_detection",
@@ -106,13 +107,14 @@ class AgentState(TypedDict, total=False):
 ROUTER_SYSTEM = """You classify a real-estate asset-management question into one or more intents.
 Valid intents: {intents}
 - pnl_summary: total revenue/expenses/net for a property or the whole portfolio
-- property_comparison: comparing 2+ properties on some metric
+- property_comparison: comparing 2+ properties on P&L / performance
+- price_comparison: user asked to compare or quote sale price, market value, or appraisal of assets (still extract the addresses/names — do NOT use unsupported for this)
 - period_comparison: comparing two time periods (this quarter vs last, YoY, etc.)
 - top_tenants: ranking tenants by revenue
 - anomaly_detection: "anything unusual", outliers, irregular numbers
-- property_details: general info about one property
+- property_details: general info about one property (address-like details, what's on file)
 - general_knowledge: not about this dataset at all (e.g. "what is P&L?")
-- unsupported: cannot be answered with this dataset (e.g. asking for a property price/valuation, which this ledger does not contain)
+- unsupported: only for requests this ledger cannot support AND that are not price/appraisal/address lookups (e.g. asking to book a contractor)
 
 A question can have multiple intents. Respond with ONLY a JSON object:
 {{"intents": ["..."]}}"""
@@ -145,9 +147,10 @@ def _strip_fences(text: str) -> str:
 
 def route_after_router(state: AgentState) -> Literal["extractor", "general_knowledge"]:
     intents = state.get("intents", [])
-    if intents == ["general_knowledge"] or intents == ["unsupported"]:
-        return "general_knowledge"
-    return "extractor"
+    data_intents = [i for i in intents if i not in ("general_knowledge", "unsupported")]
+    if data_intents:
+        return "extractor"
+    return "general_knowledge"
 
 
 # --------------------------------------------------------------------------
@@ -183,12 +186,13 @@ Today's context: assume "this year"/"this quarter" refers to the most recent per
 
 Return ONLY a JSON object with this shape (omit keys you have no info for):
 {{
-  "properties": ["..."],       // property names as mentioned, even if misspelled
+  "properties": ["..."],       // copy names/addresses exactly as the user said, even street addresses or misspellings that are NOT in the known list
   "tenants": ["..."],
   "period_a": {{"year": "...", "quarter": "...", "month": "..."}},
   "period_b": {{"year": "...", "quarter": "...", "month": "..."}}   // only if comparing two periods
 }}
-If nothing is mentioned for a slot, omit it — do not guess a property or tenant that wasn't referenced."""
+If nothing is mentioned for a slot, omit it — do not guess a property or tenant that wasn't referenced.
+Never drop a street address just because it is missing from the known-properties list — the validator handles that."""
 
 
 def extractor_node(state: AgentState) -> dict:
@@ -270,7 +274,18 @@ def route_after_validator(state: AgentState) -> Literal["clarification", "retrie
 
 
 def clarification_node(state: AgentState) -> dict:
-    return {"response": state["clarification_question"]}
+    q = state.get("clarification_question") or "I need a bit more detail to answer that."
+    intents = state.get("intents") or []
+    available = ", ".join(dt.get_properties())
+    if "price_comparison" in intents:
+        q = (
+            f"{q} This file is a P&L ledger, so there is no sale price, market value, "
+            f"or appraisal date I can quote. Properties on file: {available}. "
+            "Name those buildings and I can compare revenue, expenses, and net instead."
+        )
+    elif not any(p in q for p in dt.get_properties()) and "Available:" not in q:
+        q = f"{q} Properties on file: {available}."
+    return {"response": q}
 
 
 # --------------------------------------------------------------------------
@@ -307,6 +322,25 @@ def calculator_node(state: AgentState) -> dict:
         elif intent == "property_details":
             props = properties or dt.get_properties()
             results["property_details"] = dt.compare_properties(props, period=period)
+            results["dataset_limits"] = {
+                "sale_price_available": False,
+                "appraisal_date_available": False,
+                "fields_on_file": [
+                    "property_name",
+                    "tenant_name",
+                    "ledger revenue/expenses/net",
+                    "period (month/quarter/year)",
+                ],
+            }
+
+        elif intent == "price_comparison":
+            props = properties or dt.get_properties()
+            results["price_comparison"] = {
+                "sale_price_available": False,
+                "appraisal_date_available": False,
+                "comparable_metric": "P&L (revenue, expenses, net) — not market price",
+                "pnl": dt.compare_properties(props, period=period),
+            }
 
     return {"results": results}
 
@@ -322,7 +356,12 @@ below into a clear, concise answer to the user's question. Rules:
 - 'corporate-level' entries in anomalies are company-wide costs not tied to one building —
   mention that distinction if you surface any.
 - Be direct. No filler, no restating the question back verbatim.
-- If results are empty for an intent, say plainly that there's nothing to report for it."""
+- If results are empty for an intent, say plainly that there's nothing to report for it.
+- NEVER invent a sale price, market value, or appraisal date. If price_comparison or
+  dataset_limits says those fields are unavailable, say so in one sentence, then give
+  the P&L figures as the comparable data this ledger actually contains.
+- For property_details, describe what is on file (P&L, tenants/period if present), not
+  a fake address card."""
 
 
 def responder_node(state: AgentState) -> dict:

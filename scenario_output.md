@@ -12,16 +12,21 @@ Q: What is the price of my asset at 123 Main St compared to the one at 456 Oak A
 Internals:
 {
   "intents": [
-    "unsupported"
+    "price_comparison"
   ],
-  "entities": null,
-  "needs_clarification": null,
-  "validation_errors": null,
+  "entities": {
+    "properties": []
+  },
+  "needs_clarification": true,
+  "validation_errors": [
+    "'123 Main St' isn't a property in the data — did you mean 'Building 120'?",
+    "'456 Oak Ave' isn't a property in the data — did you mean 'Building 140'?"
+  ],
   "results_keys": []
 }
 
 Answer:
-I can't answer that from this dataset — it only contains ledger entries (revenue/expenses by property, tenant and period), not market valuations or prices. I can help with P&L, comparisons between properties or periods, top tenants, or unusual entries.
+'123 Main St' isn't a property in the data — did you mean 'Building 120'? '456 Oak Ave' isn't a property in the data — did you mean 'Building 140'? Could you clarify? This file is a P&L ledger, so there is no sale price, market value, or appraisal date I can quote. Properties on file: Building 120, Building 140, Building 160, Building 17, Building 180. Name those buildings and I can compare revenue, expenses, and net instead.
 
 ========================================================================
 SCENARIO 2: Total P&L this year (all properties)

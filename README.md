@@ -39,7 +39,7 @@ Deterministic data-layer tests (no API key):
 
 ```bash
 pip install pytest
-python3 -m pytest test_data_tools.py -v
+python3 -m pytest test_data_tools.py test_graph.py -v
 ```
 
 ## Dataset
@@ -56,11 +56,29 @@ python3 -m pytest test_data_tools.py -v
 | `month` / `quarter` / `year` | period, as strings (`2025-M01`, `2025-Q1`, `2025`) |
 | `profit` | signed amount |
 
-This is a P&L ledger, not a price/valuation table — the task's original
-"price comparison" example doesn't map onto this data, so "comparison"
-here means comparing revenue/expenses/net between properties or periods.
-Questions asking for market price/valuation are explicitly treated as
-**unsupported** (see below) rather than answered with made-up numbers.
+This is a P&L ledger, not a price/valuation table. Street-address and
+"compare the prices" questions are classified as **`price_comparison`**: the
+graph still extracts the names/addresses, then either asks for a building
+that exists in the file or answers with **revenue/expenses/net** and an
+explicit note that sale price and appraisal date are not in the dataset.
+It never invents market values.
+
+## For the examiner
+
+Public submission: https://github.com/oldw23/RealEstateAssetManagment
+
+| Brief requirement | Where it is |
+|---|---|
+| LangGraph multi-agent | `graph.py` (`StateGraph`: router → extractor → validator → calculator → responder) |
+| Detect request type | Router intents include P&L, property/price comparison, period comparison, property details, top tenants, anomalies, general knowledge |
+| Extract addresses / periods | `extractor_node` (keeps street addresses even when they are not in the ledger) |
+| Dataset | `ledger.parquet` (also `data/ledger.parquet`), accessed only via `data_tools.py` — not a price API |
+| Calculations | pandas in `data_tools.py`; LLM does not compute totals |
+| Vague / compound / unsupported | See `run_scenarios.py` and `scenario_output.md` |
+| Missing property | Validator + clarification (e.g. 789 Pine Ln, Building 500) |
+| How to run | README **Setup** and **Running the scenarios** |
+
+Do not expect the brief’s sample figures ($500,000 / appraisal 2024-01-15): those fields are not in the provided ledger.
 
 ## Architecture
 
@@ -69,10 +87,11 @@ START
   |
   v
 [router] -- classifies intent(s): pnl_summary, property_comparison,
-  |         period_comparison, top_tenants, anomaly_detection,
-  |         property_details, general_knowledge, unsupported
+  |         price_comparison, period_comparison, top_tenants,
+  |         anomaly_detection, property_details, general_knowledge,
+  |         unsupported
   |
-  +--> general_knowledge / unsupported --> END
+  +--> general_knowledge / unsupported-only --> END
   |
   v
 [extractor] -- pulls properties / tenants / period(s) out of the text
@@ -121,7 +140,7 @@ below).
 | Year not in the dataset | Flagged in validation, routed to `clarification`, lists the years that do exist. |
 | `period_comparison` intent with only one period given | Routed to `clarification` asking for the second period. |
 | Corporate-level rows (no `property_name`) | Excluded from `top_tenants` scoring; labeled explicitly as "corporate-level" rather than attributed to a building when they show up in anomalies. |
-| Question outside the dataset (e.g. asking for a sale price) | Classified as `unsupported` by the router, short-circuits before extraction, explains what the dataset *can* answer instead of guessing. |
+| Question outside the dataset (e.g. asking for a sale price) | Classified as `price_comparison`, still extracts the addresses, then clarifies or answers with P&L and states that sale price / appraisal are not in the file. |
 | Truly unrelated question ("what is P&L?") | Classified as `general_knowledge`, answered directly without touching the ledger. |
 
 ## Anomaly detection method
@@ -134,10 +153,10 @@ would be a natural next iteration.
 
 ## Testing
 
-`test_data_tools.py` covers the deterministic layer (no LLM): P&L sums, property
-comparison, fuzzy-match rejecting a nonexistent property number, and anomaly
-detection returning "corporate-level" instead of crashing on null
-`property_name`/`tenant_name`. Run with `python3 -m pytest test_data_tools.py -v`.
+`test_data_tools.py` and `test_graph.py` cover the deterministic layer (no LLM): P&L sums, property
+comparison, fuzzy-match rejecting a nonexistent property number, anomaly
+detection, and graph routing for price-comparison / missing addresses.
+Run with `python3 -m pytest test_data_tools.py test_graph.py -v`.
 
 End-to-end assignment scenarios (router → extractor → validator → calculator →
 responder) are `python3 run_scenarios.py`; see **Running the scenarios** above

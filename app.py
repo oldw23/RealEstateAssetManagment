@@ -13,10 +13,11 @@ st.caption(
 
 with st.expander("Example questions"):
     st.markdown(
-        "- What is the total P&L for Building 17 in 2025?\n"
-        "- Compare Building 17 to Building 140.\n"
+        "- What is the total P&L for all my properties this year?\n"
+        "- How does this quarter compare to the same period last year?\n"
         "- Who are my top tenants, and is anything unusual in the numbers?\n"
-        "- How does 2025-Q2 compare to 2024-Q2 for Building 160?\n"
+        "- What is the price of my asset at 123 Main St compared to the one at 456 Oak Ave?\n"
+        "- Compare Building 17 to Building 140.\n"
         "- Compare Building 17 to Building 500 *(triggers a clarification)*"
     )
 
