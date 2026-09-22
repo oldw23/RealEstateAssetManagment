@@ -17,7 +17,30 @@ export ANTHROPIC_API_KEY=sk-...      # if using anthropic
 streamlit run app.py
 ```
 
-Place your dataset at `data/ledger.parquet` (already included here).
+The parquet file ships at the repo root as `ledger.parquet` (also accepted at `data/ledger.parquet`).
+
+## Running the scenarios
+
+Live LangGraph cases (assignment prompts plus a few extras) live in `run_scenarios.py`. They need an API key. A captured transcript of a successful run is in [`scenario_output.md`](scenario_output.md).
+
+```bash
+# from the repo root
+pip install -r requirements.txt
+
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-...      # required for these live runs
+
+python3 run_scenarios.py
+```
+
+That prints each question, the graph internals (intents, entities, validation), and the assistant answer. It also overwrites `scenario_output.md` with the same transcript.
+
+Deterministic data-layer tests (no API key):
+
+```bash
+pip install pytest
+python3 -m pytest test_data_tools.py -v
+```
 
 ## Dataset
 
@@ -111,11 +134,14 @@ would be a natural next iteration.
 
 ## Testing
 
-Every `data_tools.py` function is deterministic and was smoke-tested
-independently of the LLM (see commit history / can be turned into
-`pytest` cases): P&L sums, property comparison, fuzzy-match rejecting a
-nonexistent property number, and anomaly detection returning
-"corporate-level" instead of crashing on null `property_name`/`tenant_name`.
+`test_data_tools.py` covers the deterministic layer (no LLM): P&L sums, property
+comparison, fuzzy-match rejecting a nonexistent property number, and anomaly
+detection returning "corporate-level" instead of crashing on null
+`property_name`/`tenant_name`. Run with `python3 -m pytest test_data_tools.py -v`.
+
+End-to-end assignment scenarios (router → extractor → validator → calculator →
+responder) are `python3 run_scenarios.py`; see **Running the scenarios** above
+and the checked-in [`scenario_output.md`](scenario_output.md).
 
 The graph's non-LLM nodes (`validator_node`, `calculator_node`,
 `route_after_validator`) were also run directly against hand-built state to
